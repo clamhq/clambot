@@ -128,7 +128,9 @@ class TestFactory:
         assert isinstance(p, CustomProvider)
 
     def test_uses_default_model_from_config(self) -> None:
+        # model default is now "" — must be set explicitly before calling create_provider
         config = ClamBotConfig()
+        config.agents.defaults.model = "anthropic/claude-sonnet-4-20250514"
         p = create_provider(config)
         assert isinstance(p, LiteLLMProvider)
         assert p.model == config.agents.defaults.model

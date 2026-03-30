@@ -23,7 +23,7 @@ class Base(BaseModel):
 
 class AgentDefaults(Base):
     workspace: str = "~/.clambot/workspace"
-    model: str = "anthropic/claude-sonnet-4-20250514"
+    model: str = ""
     max_tokens: int = 8192
     temperature: float = 0.7
     max_tool_iterations: int = 20

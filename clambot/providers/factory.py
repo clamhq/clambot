@@ -29,6 +29,10 @@ def create_provider(config: ClamBotConfig, model: str | None = None) -> LLMProvi
         A concrete provider instance satisfying :class:`LLMProvider`.
     """
     model = model or config.agents.defaults.model
+    if not model:
+        raise ValueError(
+            "No model configured. Run: uv run clambot provider connect <provider>"
+        )
     provider_name = find_provider_for_model(model)
 
     if provider_name:

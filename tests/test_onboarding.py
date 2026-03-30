@@ -576,7 +576,7 @@ class TestPackageInstallability:
         from clambot.config.schema import ClamBotConfig
 
         cfg = ClamBotConfig()
-        assert cfg.agents.defaults.model != ""
+        assert cfg.agents.defaults.model == ""  # model is intentionally empty by default; must be set explicitly in config
         assert cfg.gateway.port > 0
 
 
@@ -710,7 +710,7 @@ class TestOnboardConfigShape:
         example = json.loads(example_path.read_text())
 
         cfg = ClamBotConfig.model_validate(example)
-        assert cfg.agents.defaults.model != ""
+        assert cfg.agents.defaults.model == ""  # model is intentionally empty by default; must be set explicitly in config
         assert cfg.gateway.port > 0
 
     def test_onboard_default_values_match_example(self, tmp_path: Path) -> None:
