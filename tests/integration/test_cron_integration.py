@@ -498,11 +498,11 @@ class TestCronToolIntegration:
 
 
 class TestCronManagementViaChatMode:
-    """Integration: a Telegram-like user creates and removes a cron task
-    through the chat responder's function-calling interface.
+    """Integration: cron task create/remove through direct tool execution.
 
-    Uses a **real LLM** (Ollama) to verify the full function-calling
-    round-trip — no mocked responses.
+    Chat mode no longer has tools — cron is handled by the agent loop's
+    direct tool execution path.  This test validates the cron tool
+    directly (no LLM needed for tool dispatch).
 
     Requires:
         - Ollama running at ``OLLAMA_HOST`` (from ``.env.test``)
@@ -515,20 +515,13 @@ class TestCronManagementViaChatMode:
     )
     @pytest.mark.asyncio
     async def test_create_and_remove_cron_task(self, tmp_path: Path) -> None:
-        """Full round-trip with a real LLM:
+        """Direct cron tool execution round-trip:
 
-        1. User asks to schedule a task → LLM calls ``cron(action='add')``
-           via function calling → job created in service.
-        2. User asks to remove it → LLM calls ``cron(action='remove')``
-           → job deleted from service and disk.
+        1. Add a cron task via direct tool execution → job persisted.
+        2. List tasks → job visible.
+        3. Remove the task → job deleted from service and disk.
         """
-        from clambot.agent.chat_mode import ChatModeFallbackResponder
-        from clambot.providers.litellm_provider import LiteLLMProvider
         from clambot.tools.cron.operations import CronTool
-        from clambot.tools.registry import BuiltinToolRegistry
-
-        ollama_host = os.environ.get("OLLAMA_HOST", "http://localhost:11434")
-        ollama_model = os.environ.get("OLLAMA_MODEL", "qwen3-coder-next")
 
         workspace = _make_workspace(tmp_path)
         store_path = workspace / "cron" / "jobs.json"
@@ -544,53 +537,31 @@ class TestCronManagementViaChatMode:
         cron_tool = CronTool()
         configure_cron_tool_runtime_sync_hook(cron_tool, cron_service)
 
-        registry = BuiltinToolRegistry()
-        registry.register(cron_tool)
-
-        # ── Real LLM provider (Ollama via LiteLLM) ───────────
-        provider = LiteLLMProvider(
-            model=f"ollama/{ollama_model}",
-            api_base=ollama_host,
-        )
-
-        # ── Chat responder with agent tools ───────────────────
-        responder = ChatModeFallbackResponder(
-            provider=provider,
-            max_tokens=1024,
-            temperature=0.0,
-            tool_registry=registry,
-            agent_tools={"cron"},
-        )
-
-        # ── Turn 1: create the cron task ──────────────────────
-        reply = await responder.respond(
-            message=(
-                "Schedule exactly ONE hourly cron task with message "
-                "'Check OpenRouter credits' using every_seconds=3600. "
-                "Call the cron tool once, then stop."
-            ),
-        )
+        # ── Step 1: create the cron task (direct tool call) ───
+        add_result = cron_tool.execute({
+            "action": "add",
+            "message": "Check OpenRouter credits",
+            "every_seconds": 3600,
+        })
+        assert add_result.get("ok") is True, f"Add failed: {add_result}"
 
         jobs = cron_service.list_jobs()
-        assert len(jobs) >= 1, (
-            f"Expected at least 1 job after creation, got {len(jobs)}. LLM reply: {reply}"
-        )
+        assert len(jobs) >= 1, f"Expected at least 1 job after creation, got {len(jobs)}"
         created_job = jobs[0]
         assert created_job.schedule.every_seconds == 3600
 
-        # ── Turn 2: remove ALL cron tasks ─────────────────────
-        job_ids = ", ".join(j.id for j in jobs)
-        reply = await responder.respond(
-            message=(
-                f"Remove ALL of these cron jobs by their IDs: {job_ids}. "
-                "Call the cron remove action for each one."
-            ),
-        )
+        # ── Step 2: list tasks ────────────────────────────────
+        list_result = cron_tool.execute({"action": "list"})
+        assert isinstance(list_result.get("jobs"), list)
+        assert len(list_result["jobs"]) >= 1
+
+        # ── Step 3: remove the task ───────────────────────────
+        for job in jobs:
+            remove_result = cron_tool.execute({"action": "remove", "job_id": job.id})
+            assert remove_result.get("ok") is True, f"Remove failed: {remove_result}"
 
         remaining = cron_service.list_jobs(include_disabled=True)
-        assert len(remaining) == 0, (
-            f"Expected 0 jobs after removal, got {len(remaining)}. LLM reply: {reply}"
-        )
+        assert len(remaining) == 0, f"Expected 0 jobs after removal, got {len(remaining)}"
 
         # Verify disk is clean
         store = load_cron_store(store_path)
