@@ -23,6 +23,7 @@ from clambot.utils.text import strip_markdown_fences
 from .analysis_trace import AnalysisTraceBuilder
 from .chat_mode import ChatModeFallbackResponder
 from .clams import Clam, ClamRegistry
+from .runtime_backend_amla_sandbox import RuntimeResult
 from .context import ContextBuilder
 from .error_detail_context import build_error_detail_context
 from .final_response import select_final_response
@@ -899,6 +900,21 @@ class AgentLoop:
                 missing_secrets=missing,
             )
 
+        # Check for tool-level errors embedded in output.
+        # Tools like web_fetch return {"error": "..."} which the clam
+        # passes through as output.  Promote these to runtime errors
+        # so the self-fix loop can retry with a corrected URL/request.
+        if not runtime_result.error and runtime_result.output:
+            tool_error = _extract_tool_error(runtime_result.output)
+            if tool_error:
+                runtime_result = RuntimeResult(
+                    output="",
+                    error=tool_error,
+                    timed_out=runtime_result.timed_out,
+                    tool_calls=getattr(runtime_result, "tool_calls", []),
+                    run_log=getattr(runtime_result, "run_log", {}),
+                )
+
         # Check for pre-flight/execution errors
         if runtime_result.error and not runtime_result.output:
             # ── Other errors — attempt self-fix ──
@@ -1233,3 +1249,27 @@ def _extract_tool_args_from_script(script: str, tool_name: str) -> dict[str, Any
         return _json.loads(json_str)
     except _json.JSONDecodeError:
         return {}
+
+
+def _extract_tool_error(output: str) -> str:
+    """Detect tool-level errors embedded in clam output.
+
+    Tools return structured JSON with an ``"error"`` key on failure.
+    If the output is a JSON object (or line-separated JSON objects)
+    containing a non-empty ``"error"`` field, return the error message.
+    """
+    text = output.strip()
+    if not text:
+        return ""
+
+    # Try parsing as a single JSON object
+    try:
+        data = _json.loads(text)
+        if isinstance(data, dict):
+            err = data.get("error", "")
+            if err and isinstance(err, str):
+                return err
+    except (_json.JSONDecodeError, ValueError):
+        pass
+
+    return ""
