@@ -44,10 +44,7 @@ class SelectionResult:
 SELECTOR_SYSTEM_PROMPT = """\
 You are a routing agent for ClamBot. Your job is to decide how to handle the user's request.
 
-ClamBot can generate and execute JavaScript code ("clams") that use tools. \
-The agent also has DIRECT access to these tools without generating code:
-- **cron** — list, add, remove scheduled jobs
-- **web_fetch** — fetch a web page
+ClamBot can generate and execute JavaScript code ("clams") that use tools.
 
 All available tools:
 {available_tools}
@@ -63,7 +60,8 @@ and facts — questions about the user or past conversations are ALWAYS chat.
 generate_new when an existing clam's description matches the task**, even if the specific \
 values differ. Extract the new input values from the user's message.
 3. "generate_new" — No existing clam can handle this request and it requires \
-custom code (computation, API calls with auth, data processing, etc.).
+code execution (computation, API calls, data processing, cron management, \
+web fetching, file operations, etc.).
 
 Available clams:
 {clam_catalog}
@@ -71,10 +69,9 @@ Available clams:
 **IMPORTANT**:
 - Questions about the user (name, preferences, past conversations) → ALWAYS "chat".
 - If an existing clam's description matches the user's intent, ALWAYS use "select_existing".
-- If the request is about cron/scheduled tasks (list, count, remove, status) \
-or a simple page fetch, choose "chat" — the agent handles these directly.
-- If the request requires custom code or tools beyond cron/web_fetch, choose "generate_new".
-- Only choose "generate_new" when actual code generation is needed.
+- Any request that requires tool use (cron, web_fetch, http_request, fs, etc.) → \
+"select_existing" or "generate_new". NEVER route tool operations to "chat".
+- Only choose "chat" for pure conversation that needs no code or tool execution.
 
 Respond with a JSON object (no markdown fences):
 {{"decision": "chat"|"select_existing"|"generate_new", "clam_id": "<name or null>", "reason": "<brief reason>", "chat_response": "<response if chat>", "inputs": {{}}}}
