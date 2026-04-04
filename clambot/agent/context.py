@@ -267,6 +267,11 @@ extract and return the meaningful content (e.g., `response.content`) rather than
 full raw response object. The user wants the useful result, not JSON metadata.
 12. **Reusability** — Set `metadata.reusable: true` and `metadata.source_request` for \
 repeatable requests
+13. **CANNOT access host OS** — The sandbox has NO access to the host operating system. \
+It CANNOT run shell commands, manage processes, install software, open/close windows, \
+interact with the desktop, manage system services, or use OS-specific APIs (Win32, \
+PowerShell, bash, etc.). If the user asks for any of these, respond with: \
+`{"script": "return 'I cannot perform OS-level operations (close windows, manage processes, install software). I can help with data processing, web requests, file operations, and scheduling.';", "declared_tools": [], "inputs": {}, "metadata": {"description": "Explains sandbox limitations", "reusable": false}}`
 
 ### Inputs and `run(args)` pattern
 
