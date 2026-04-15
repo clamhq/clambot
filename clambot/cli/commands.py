@@ -876,8 +876,8 @@ def provider_login(
                 from clambot.config.loader import resolve_config_path
 
                 config_path = resolve_config_path(config)
-                _set_default_model(config_path, "openai-codex/gpt-5.1-codex")
-                typer.echo("Default model set to openai-codex/gpt-5.1-codex")
+                _set_default_model(config_path, "openai-codex/gpt-5.3-codex")
+                typer.echo("Default model set to openai-codex/gpt-5.3-codex")
             else:
                 typer.echo("Token stored — you can now use openai-codex/ models.")
         except KeyboardInterrupt:

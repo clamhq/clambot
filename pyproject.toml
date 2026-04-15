@@ -5,7 +5,7 @@ description = "ClamBot — AI agent with WASM sandbox execution"
 license = "MIT"
 requires-python = ">=3.13,<3.14"
 dependencies = [
-    "amla-sandbox @ git+https://github.com/amlalabs/amla-sandbox@v0.1.7",
+    "amla-sandbox @ git+https://github.com/clamhq/amla-sandbox@1bd17f0",
     "pydantic>=2.12.0,<3.0.0",
     "typer>=0.19.2,<1.0.0",
     "litellm==1.82.6",

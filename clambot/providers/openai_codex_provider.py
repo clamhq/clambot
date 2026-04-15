@@ -4,7 +4,7 @@ Uses ``oauth_cli_kit`` for token management (login, refresh, storage) and
 streams SSE responses from the ChatGPT Codex backend API.
 
 Model strings should use the ``openai-codex/`` prefix, e.g.:
-    ``openai-codex/gpt-5.1-codex``
+    ``openai-codex/gpt-5.3-codex``
 
 When using the legacy default model, the provider now discovers available
 Codex models and heuristically picks the most advanced ``gpt-<max>-codex``
@@ -32,7 +32,7 @@ DEFAULT_CODEX_URL = "https://chatgpt.com/backend-api/codex/responses"
 DEFAULT_CODEX_MODELS_URL = "https://chatgpt.com/backend-api/codex/models"
 DEFAULT_CODEX_CLIENT_VERSION = "0.0.0"
 DEFAULT_ORIGINATOR = "clambot"
-LEGACY_DEFAULT_CODEX_MODEL = "openai-codex/gpt-5.1-codex"
+LEGACY_DEFAULT_CODEX_MODEL = "openai-codex/gpt-5.3-codex"
 
 _GPT_CODEX_RE = re.compile(r"^gpt-(\d+(?:\.\d+)*)-codex(?:$|[-_].*)", re.IGNORECASE)
 _GPT_RE = re.compile(r"^gpt-(\d+(?:\.\d+)*)", re.IGNORECASE)
@@ -48,7 +48,7 @@ class OpenAICodexProvider:
 
     Parameters:
         default_model: Default model identifier (e.g.
-                       ``openai-codex/gpt-5.1-codex``).  Overridable via
+                       ``openai-codex/gpt-5.3-codex``).  Overridable via
                        ``providers.openai_codex`` config or the
                        ``agents.defaults.model`` config key.
         api_url: Codex Responses API endpoint.  Defaults to
@@ -162,7 +162,7 @@ class OpenAICodexProvider:
         """Resolve the best default Codex model once per provider instance.
 
         Only auto-resolves when the configured default model is a known legacy
-        placeholder (e.g. ``gpt-5.1-codex``), preserving explicit user-pinned
+        placeholder (e.g. ``gpt-5.3-codex``), preserving explicit user-pinned
         models.
         """
         if not _should_auto_discover_default_model(self.default_model):
@@ -265,6 +265,7 @@ def _should_auto_discover_default_model(model: str) -> bool:
     """
     stripped = _strip_model_prefix(model).strip().lower()
     return stripped in {
+        "gpt-5.3-codex",
         "gpt-5.1-codex",
         "auto",
         "latest",

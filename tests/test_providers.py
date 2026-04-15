@@ -170,9 +170,9 @@ class TestFactory:
         from clambot.providers.openai_codex_provider import OpenAICodexProvider
 
         config = ClamBotConfig()
-        p = create_provider(config, model="openai-codex/gpt-5.1-codex")
+        p = create_provider(config, model="openai-codex/gpt-5.3-codex")
         assert isinstance(p, OpenAICodexProvider)
-        assert p.default_model == "openai-codex/gpt-5.1-codex"
+        assert p.default_model == "openai-codex/gpt-5.3-codex"
 
 
 # ---------------------------------------------------------------------------
@@ -393,7 +393,7 @@ class TestOpenAICodexProvider:
 
     def test_strip_model_prefix_dash(self) -> None:
         """openai-codex/ prefix is removed."""
-        assert _strip_model_prefix("openai-codex/gpt-5.1-codex") == "gpt-5.1-codex"
+        assert _strip_model_prefix("openai-codex/gpt-5.3-codex") == "gpt-5.3-codex"
 
     def test_strip_model_prefix_underscore(self) -> None:
         """openai_codex/ prefix is removed."""
@@ -415,6 +415,10 @@ class TestOpenAICodexProvider:
 
     def test_should_auto_discover_default_model_legacy(self) -> None:
         """Legacy default model enables auto discovery."""
+        assert _should_auto_discover_default_model("openai-codex/gpt-5.3-codex")
+
+    def test_should_auto_discover_default_model_backward_compat(self) -> None:
+        """Older placeholder defaults should still auto-discover."""
         assert _should_auto_discover_default_model("openai-codex/gpt-5.1-codex")
 
     def test_should_not_auto_discover_pinned_model(self) -> None:
@@ -424,11 +428,11 @@ class TestOpenAICodexProvider:
     def test_apply_model_prefix_reuses_reference_style(self) -> None:
         """Discovered model keeps caller's prefix style."""
         assert (
-            _apply_model_prefix("openai_codex/gpt-5.1-codex", "gpt-5.3-codex")
+            _apply_model_prefix("openai_codex/gpt-5.3-codex", "gpt-5.3-codex")
             == "openai_codex/gpt-5.3-codex"
         )
         assert (
-            _apply_model_prefix("openai-codex/gpt-5.1-codex", "gpt-5.3-codex")
+            _apply_model_prefix("openai-codex/gpt-5.3-codex", "gpt-5.3-codex")
             == "openai-codex/gpt-5.3-codex"
         )
 
