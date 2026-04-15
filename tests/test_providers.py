@@ -367,8 +367,12 @@ class TestCustomProvider:
 
 from clambot.providers.openai_codex_provider import (  # noqa: E402
     OpenAICodexProvider,
+    _apply_model_prefix,
     _convert_messages,
     _friendly_error,
+    _models_url_for_api,
+    _pick_most_advanced_codex_model,
+    _should_auto_discover_default_model,
     _strip_model_prefix,
 )
 
@@ -398,6 +402,50 @@ class TestOpenAICodexProvider:
     def test_strip_model_prefix_bare(self) -> None:
         """Model without a recognised prefix is returned unchanged."""
         assert _strip_model_prefix("bare-model") == "bare-model"
+
+    # ------------------------------------------------------------------
+    # Model discovery helpers
+    # ------------------------------------------------------------------
+
+    def test_models_url_for_api_default_responses_url(self) -> None:
+        """Models endpoint is derived from responses endpoint."""
+        assert _models_url_for_api("https://chatgpt.com/backend-api/codex/responses") == (
+            "https://chatgpt.com/backend-api/codex/models"
+        )
+
+    def test_should_auto_discover_default_model_legacy(self) -> None:
+        """Legacy default model enables auto discovery."""
+        assert _should_auto_discover_default_model("openai-codex/gpt-5.1-codex")
+
+    def test_should_not_auto_discover_pinned_model(self) -> None:
+        """Explicitly pinned models are not auto-upgraded."""
+        assert not _should_auto_discover_default_model("openai-codex/gpt-5.2-codex")
+
+    def test_apply_model_prefix_reuses_reference_style(self) -> None:
+        """Discovered model keeps caller's prefix style."""
+        assert (
+            _apply_model_prefix("openai_codex/gpt-5.1-codex", "gpt-5.3-codex")
+            == "openai_codex/gpt-5.3-codex"
+        )
+        assert (
+            _apply_model_prefix("openai-codex/gpt-5.1-codex", "gpt-5.3-codex")
+            == "openai-codex/gpt-5.3-codex"
+        )
+
+    def test_pick_most_advanced_codex_model_prefers_highest_version(self) -> None:
+        """Heuristic picks highest gpt-<version>-codex model."""
+        models = [
+            "gpt-5.2",
+            "gpt-5.3-codex-spark",
+            "gpt-5.3-codex",
+            "gpt-4.1-codex",
+        ]
+        assert _pick_most_advanced_codex_model(models) == "gpt-5.3-codex"
+
+    def test_pick_most_advanced_codex_model_falls_back_to_highest_gpt(self) -> None:
+        """If no codex model exists, use highest gpt model."""
+        models = ["gpt-4.1", "gpt-5.2", "codex-auto-review"]
+        assert _pick_most_advanced_codex_model(models) == "gpt-5.2"
 
     # ------------------------------------------------------------------
     # _convert_messages
@@ -469,16 +517,57 @@ class TestOpenAICodexProvider:
                 return_value=mock_token,
             ),
             patch(
+                "clambot.providers.openai_codex_provider._request_codex_models",
+                new_callable=AsyncMock,
+                return_value=["gpt-5.3-codex", "gpt-5.2"],
+            ) as mock_model_discovery,
+            patch(
                 "clambot.providers.openai_codex_provider._request_codex",
                 new_callable=AsyncMock,
                 return_value=("Hello from Codex", []),
-            ),
+            ) as mock_request,
         ):
             result = await provider.acomplete([{"role": "user", "content": "Say hello"}])
 
         assert isinstance(result, LLMResponse)
         assert result.content == "Hello from Codex"
         assert result.usage is None
+        assert mock_model_discovery.await_count == 1
+        assert mock_request.await_args.args[2]["model"] == "gpt-5.3-codex"
+
+    @pytest.mark.asyncio
+    async def test_explicit_model_skips_auto_discovery(self) -> None:
+        """Explicit per-call model should bypass default auto-discovery."""
+        mock_token = MagicMock()
+        mock_token.access = "test-token"
+        mock_token.account_id = "acc-123"
+
+        provider = OpenAICodexProvider()
+
+        with (
+            patch(
+                "asyncio.to_thread",
+                new_callable=AsyncMock,
+                return_value=mock_token,
+            ),
+            patch(
+                "clambot.providers.openai_codex_provider._request_codex_models",
+                new_callable=AsyncMock,
+                return_value=["gpt-5.3-codex"],
+            ) as mock_model_discovery,
+            patch(
+                "clambot.providers.openai_codex_provider._request_codex",
+                new_callable=AsyncMock,
+                return_value=("ok", []),
+            ) as mock_request,
+        ):
+            await provider.acomplete(
+                [{"role": "user", "content": "Say hello"}],
+                model="openai-codex/gpt-4.1-codex",
+            )
+
+        assert mock_model_discovery.await_count == 0
+        assert mock_request.await_args.args[2]["model"] == "gpt-4.1-codex"
 
     # ------------------------------------------------------------------
     # acomplete — error path
@@ -498,6 +587,11 @@ class TestOpenAICodexProvider:
                 "asyncio.to_thread",
                 new_callable=AsyncMock,
                 return_value=mock_token,
+            ),
+            patch(
+                "clambot.providers.openai_codex_provider._request_codex_models",
+                new_callable=AsyncMock,
+                return_value=["gpt-5.3-codex"],
             ),
             patch(
                 "clambot.providers.openai_codex_provider._request_codex",
@@ -534,6 +628,11 @@ class TestOpenAICodexProvider:
                 "asyncio.to_thread",
                 new_callable=AsyncMock,
                 return_value=mock_token,
+            ),
+            patch(
+                "clambot.providers.openai_codex_provider._request_codex_models",
+                new_callable=AsyncMock,
+                return_value=["gpt-5.3-codex"],
             ),
             patch(
                 "clambot.providers.openai_codex_provider._request_codex",

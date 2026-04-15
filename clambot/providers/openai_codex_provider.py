@@ -5,6 +5,10 @@ streams SSE responses from the ChatGPT Codex backend API.
 
 Model strings should use the ``openai-codex/`` prefix, e.g.:
     ``openai-codex/gpt-5.1-codex``
+
+When using the legacy default model, the provider now discovers available
+Codex models and heuristically picks the most advanced ``gpt-<max>-codex``
+variant from the account-visible catalog.
 """
 
 from __future__ import annotations
@@ -13,6 +17,7 @@ import asyncio
 import hashlib
 import json
 import logging
+import re
 from collections.abc import AsyncGenerator
 from typing import Any
 
@@ -24,7 +29,13 @@ from clambot.utils.constants import USER_AGENT
 logger = logging.getLogger(__name__)
 
 DEFAULT_CODEX_URL = "https://chatgpt.com/backend-api/codex/responses"
+DEFAULT_CODEX_MODELS_URL = "https://chatgpt.com/backend-api/codex/models"
+DEFAULT_CODEX_CLIENT_VERSION = "0.0.0"
 DEFAULT_ORIGINATOR = "clambot"
+LEGACY_DEFAULT_CODEX_MODEL = "openai-codex/gpt-5.1-codex"
+
+_GPT_CODEX_RE = re.compile(r"^gpt-(\d+(?:\.\d+)*)-codex(?:$|[-_].*)", re.IGNORECASE)
+_GPT_RE = re.compile(r"^gpt-(\d+(?:\.\d+)*)", re.IGNORECASE)
 
 
 class OpenAICodexProvider:
@@ -49,7 +60,7 @@ class OpenAICodexProvider:
 
     def __init__(
         self,
-        default_model: str = "openai-codex/gpt-5.1-codex",
+        default_model: str = LEGACY_DEFAULT_CODEX_MODEL,
         api_url: str = DEFAULT_CODEX_URL,
         *,
         ssl_fallback_insecure: bool = False,
@@ -57,6 +68,9 @@ class OpenAICodexProvider:
         self.default_model = default_model
         self.api_url = api_url
         self._ssl_fallback_insecure = ssl_fallback_insecure
+        self._model_resolution_lock = asyncio.Lock()
+        self._resolved_default_model: str | None = None
+        self._attempted_default_model_resolution = False
 
     async def acomplete(
         self,
@@ -69,7 +83,7 @@ class OpenAICodexProvider:
         """
         from oauth_cli_kit import OPENAI_CODEX_PROVIDER, get_token
 
-        model = kwargs.pop("model", self.default_model)
+        requested_model = kwargs.pop("model", None)
         tools = kwargs.pop("tools", None)
         kwargs.pop("tool_choice", None)  # always "auto" for Codex
 
@@ -80,6 +94,11 @@ class OpenAICodexProvider:
             provider=OPENAI_CODEX_PROVIDER,
         )
         headers = _build_headers(token.account_id, token.access)
+
+        if requested_model is None:
+            model = await self._resolve_default_model(headers)
+        else:
+            model = requested_model
 
         body: dict[str, Any] = {
             "model": _strip_model_prefix(model),
@@ -139,6 +158,70 @@ class OpenAICodexProvider:
         except Exception as exc:
             return LLMResponse(content=f"Error calling Codex: {exc}")
 
+    async def _resolve_default_model(self, headers: dict[str, str]) -> str:
+        """Resolve the best default Codex model once per provider instance.
+
+        Only auto-resolves when the configured default model is a known legacy
+        placeholder (e.g. ``gpt-5.1-codex``), preserving explicit user-pinned
+        models.
+        """
+        if not _should_auto_discover_default_model(self.default_model):
+            return self.default_model
+
+        if self._resolved_default_model is not None:
+            return self._resolved_default_model
+        if self._attempted_default_model_resolution:
+            return self.default_model
+
+        async with self._model_resolution_lock:
+            if self._resolved_default_model is not None:
+                return self._resolved_default_model
+            if self._attempted_default_model_resolution:
+                return self.default_model
+
+            self._attempted_default_model_resolution = True
+            models_url = _models_url_for_api(self.api_url)
+
+            try:
+                try:
+                    available = await _request_codex_models(
+                        models_url,
+                        headers,
+                        verify=True,
+                    )
+                except Exception as exc:
+                    if "CERTIFICATE_VERIFY_FAILED" not in str(exc):
+                        raise
+                    if not self._ssl_fallback_insecure:
+                        logger.warning(
+                            "SSL verification failed for Codex models endpoint; "
+                            "insecure fallback disabled",
+                        )
+                        raise
+                    logger.warning(
+                        "SSL verification failed for Codex models endpoint; retrying "
+                        "with verify=False",
+                    )
+                    available = await _request_codex_models(
+                        models_url,
+                        headers,
+                        verify=False,
+                    )
+
+                discovered = _pick_most_advanced_codex_model(available)
+                if discovered:
+                    resolved = _apply_model_prefix(self.default_model, discovered)
+                    self._resolved_default_model = resolved
+                    logger.info(
+                        "Resolved best Codex model: %s (from %d candidates)",
+                        discovered,
+                        len(available),
+                    )
+            except Exception as exc:
+                logger.debug("Failed to auto-resolve Codex model: %s", exc)
+
+            return self._resolved_default_model or self.default_model
+
 
 # ---------------------------------------------------------------------------
 # Internal helpers
@@ -165,6 +248,127 @@ def _build_headers(account_id: str | None, token: str) -> dict[str, str]:
     if account_id:
         headers["chatgpt-account-id"] = account_id
     return headers
+
+
+def _models_url_for_api(api_url: str) -> str:
+    """Derive the codex models URL from the configured responses URL."""
+    if api_url.endswith("/responses"):
+        return f"{api_url.rsplit('/responses', 1)[0]}/models"
+    return DEFAULT_CODEX_MODELS_URL
+
+
+def _should_auto_discover_default_model(model: str) -> bool:
+    """Whether a configured default model should be auto-resolved.
+
+    We only auto-resolve for known legacy placeholders so explicit model
+    pinning keeps working as expected.
+    """
+    stripped = _strip_model_prefix(model).strip().lower()
+    return stripped in {
+        "gpt-5.1-codex",
+        "auto",
+        "latest",
+        "gpt-max-codex",
+        "gpt-<max>-codex",
+    }
+
+
+def _apply_model_prefix(reference_model: str, discovered_model: str) -> str:
+    """Apply the same provider prefix style as *reference_model*."""
+    if reference_model.startswith("openai_codex/"):
+        return f"openai_codex/{discovered_model}"
+    if reference_model.startswith("openai-codex/"):
+        return f"openai-codex/{discovered_model}"
+    return discovered_model
+
+
+def _parse_version_tuple(raw: str) -> tuple[int, ...]:
+    return tuple(int(part) for part in raw.split("."))
+
+
+def _normalized_version_key(parts: tuple[int, ...], *, width: int = 4) -> tuple[int, ...]:
+    """Normalize variable-length version tuples for consistent comparison."""
+    if len(parts) >= width:
+        return parts[:width]
+    return parts + (0,) * (width - len(parts))
+
+
+def _pick_most_advanced_codex_model(models: list[str]) -> str | None:
+    """Pick the most advanced Codex model from discovered model names.
+
+    Heuristic:
+      1) Prefer ``gpt-<version>-codex`` family (highest version wins).
+      2) Within same version, prefer the plain ``...-codex`` variant over
+         suffixed variants such as ``...-codex-spark``.
+      3) If no codex-suffixed model exists, fall back to highest ``gpt-*``.
+    """
+    codex_candidates: list[tuple[tuple[int, ...], int, str]] = []
+    gpt_candidates: list[tuple[tuple[int, ...], str]] = []
+
+    for raw in models:
+        model = _strip_model_prefix(raw).strip()
+        if not model:
+            continue
+
+        codex_match = _GPT_CODEX_RE.match(model)
+        if codex_match:
+            version = _normalized_version_key(_parse_version_tuple(codex_match.group(1)))
+            plain_bonus = 1 if model.lower().endswith("-codex") else 0
+            codex_candidates.append((version, plain_bonus, model))
+
+        gpt_match = _GPT_RE.match(model)
+        if gpt_match:
+            version = _normalized_version_key(_parse_version_tuple(gpt_match.group(1)))
+            gpt_candidates.append((version, model))
+
+    if codex_candidates:
+        codex_candidates.sort(key=lambda item: (item[0], item[1]), reverse=True)
+        return codex_candidates[0][2]
+
+    if gpt_candidates:
+        gpt_candidates.sort(key=lambda item: item[0], reverse=True)
+        return gpt_candidates[0][1]
+
+    return None
+
+
+async def _request_codex_models(
+    url: str,
+    headers: dict[str, str],
+    verify: bool,
+) -> list[str]:
+    """Fetch available Codex models for the authenticated account."""
+    request_headers = dict(headers)
+    request_headers["accept"] = "application/json"
+
+    async with httpx.AsyncClient(timeout=20.0, verify=verify) as client:
+        response = await client.get(
+            url,
+            headers=request_headers,
+            params={"client_version": DEFAULT_CODEX_CLIENT_VERSION},
+        )
+
+    if response.status_code != 200:
+        text = response.text
+        raise RuntimeError(_friendly_error(response.status_code, text))
+
+    payload = response.json()
+    raw_models = payload.get("models")
+    if not isinstance(raw_models, list):
+        return []
+
+    discovered: list[str] = []
+    for item in raw_models:
+        if isinstance(item, str) and item:
+            discovered.append(item)
+            continue
+
+        if isinstance(item, dict):
+            slug = item.get("slug") or item.get("id") or item.get("model")
+            if isinstance(slug, str) and slug:
+                discovered.append(slug)
+
+    return discovered
 
 
 async def _request_codex(
