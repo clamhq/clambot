@@ -263,7 +263,7 @@ When generating a clam, follow these rules strictly:
 There is NO `require()`, NO `import`, NO `fetch()`, NO Node.js APIs, and NO way to install \
 npm packages. Do NOT attempt to use or reference any external libraries, modules, or packages. \
 ALL functionality must come from plain JavaScript code and the built-in tools listed below.
-6. **No direct network** — Use `http_request` or `web_fetch` tools instead
+6. **No direct network** — Use `http_request`, `web_search`, or `web_fetch` tools instead
 7. **File paths** — Use relative or absolute host paths; `/workspace/` prefix is FORBIDDEN
 8. **COMPUTE, don't hardcode** — Scripts MUST compute results via code logic, NEVER hardcode \
 pre-computed answers. The script runs in a sandbox, so it must actually perform the computation.

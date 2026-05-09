@@ -17,6 +17,7 @@ from clambot.tools.memory.search import MemorySearchHistoryTool
 from clambot.tools.registry import BuiltinToolRegistry
 from clambot.tools.transcribe.transcribe import TranscribeTool
 from clambot.tools.web.fetch import WebFetchTool
+from clambot.tools.web.search import WebSearchTool
 from clambot.tools.secrets.env import resolve_secret_value
 from clambot.tools.secrets.store import SecretRecord, SecretStore
 
@@ -122,12 +123,15 @@ class TestBuiltinToolRegistry:
     def test_get_usage_instructions_includes_tool_metadata(self) -> None:
         """Registry exposes prompt usage instructions from registered tools."""
         registry = BuiltinToolRegistry()
+        registry.register(WebSearchTool())
         registry.register(WebFetchTool())
         registry.register(HttpRequestTool())
         registry.register(TranscribeTool())
 
         usage = registry.get_usage_instructions()
 
+        assert "web_search" in usage
+        assert any("query" in item for item in usage["web_search"])
         assert "web_fetch" in usage
         assert any("content" in item for item in usage["web_fetch"])
         assert "http_request" in usage
@@ -151,6 +155,7 @@ class TestBuiltinToolRegistry:
         expected = {
             "fs",
             "http_request",
+            "web_search",
             "web_fetch",
             "cron",
             "secrets_add",
@@ -989,6 +994,7 @@ class TestBuiltinToolsIntegration:
 
         assert "fs" in BUILTIN_TOOLS
         assert "http_request" in BUILTIN_TOOLS
+        assert "web_search" in BUILTIN_TOOLS
         assert "web_fetch" in BUILTIN_TOOLS
         assert "cron" in BUILTIN_TOOLS
         assert "secrets_add" in BUILTIN_TOOLS
@@ -1007,6 +1013,7 @@ class TestBuiltinToolsIntegration:
 
         assert "fs" in registry
         assert "http_request" in registry
+        assert "web_search" in registry
         assert "web_fetch" in registry
         assert "cron" in registry
         assert "memory_recall" in registry

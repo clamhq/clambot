@@ -27,7 +27,7 @@ from clambot.tools.pdf import PdfReaderTool
 from clambot.tools.registry import BuiltinToolRegistry
 from clambot.tools.secrets import SecretsAddTool
 from clambot.tools.transcribe import TranscribeTool
-from clambot.tools.web import WebFetchTool
+from clambot.tools.web import WebFetchTool, WebSearchTool
 
 __all__ = [
     "ToolApprovalOption",
@@ -39,6 +39,7 @@ __all__ = [
     "FilesystemTool",
     "HttpRequestTool",
     "WebFetchTool",
+    "WebSearchTool",
     "CronTool",
     "SecretsAddTool",
     "MemoryRecallTool",
@@ -58,6 +59,7 @@ __all__ = [
 BUILTIN_TOOLS: tuple[str, ...] = (
     "fs",
     "http_request",
+    "web_search",
     "web_fetch",
     "cron",
     "secrets_add",
@@ -129,6 +131,10 @@ def build_tool_registry(
                 ssl_fallback_insecure=cfg.security.ssl_fallback_insecure,
             )
         )
+
+    # — Web search --------------------------------------------------------
+    if "web_search" in names:
+        registry.register(WebSearchTool())
 
     # — Web fetch ---------------------------------------------------------
     if "web_fetch" in names:
