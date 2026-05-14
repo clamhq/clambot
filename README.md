@@ -311,6 +311,7 @@ All tools below are available out of the box and callable from generated JavaScr
 |------|-------------|
 | 📁 `fs` | Filesystem operations: read, write, edit, list |
 | 🌐 `http_request` | Authenticated HTTP with secret-based bearer tokens |
+| 🔎 `web_search` | Search the web for pages, news, images, and videos |
 | 🔗 `web_fetch` | URL content fetching |
 | 🎙️ `transcribe` | Download + transcribe media audio (YouTube and other yt-dlp supported sources) |
 | 📄 `pdf_reader` | Extract text from PDF files |
